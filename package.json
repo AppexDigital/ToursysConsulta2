@@ -1,0 +1,14 @@
+{
+  "name": "toursys-api-proxy",
+  "version": "2.0.0",
+  "description": "Funciones serverless para actuar como proxy seguro a la API de Toursys.",
+  "main": "get-quotes.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Appex Arquitecto Digital",
+  "license": "ISC",
+  "dependencies": {
+    "node-fetch": "^2.6.7"
+  }
+}

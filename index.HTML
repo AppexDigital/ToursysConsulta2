@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Centro de Operaciones - Toursys API</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800&family=Inter:wght@400;500;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0a0a; --text-light: #F1EEEB; --accent-primary: #B5CC6A;
+            --border-color: rgba(181, 204, 106, 0.2); --card-bg: rgba(25, 25, 25, 0.7);
+            --modal-bg: #111111;
+        }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-dark); color: var(--text-light); }
+        .font-display { font-family: 'Playfair Display', serif; }
+        .font-mono { font-family: 'Roboto Mono', monospace; }
+        .glass-panel {
+            background-color: var(--card-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color); border-radius: 0.75rem;
+        }
+        table thead th { background-color: rgba(181, 204, 106, 0.1); border-bottom: 2px solid var(--accent-primary); }
+        .status-pending { background-color: #f59e0b; color: black; }
+        .status-confirmed { background-color: #22c55e; color: black; }
+        .status-cancelled { background-color: #ef4444; color: white; }
+        .nav-btn {
+            border-bottom: 4px solid transparent; color: #9ca3af; transition: all 0.2s ease;
+        }
+        .nav-btn:hover { color: white; }
+        .nav-btn.active { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
+        .view { display: none; }
+        .view.active { display: block; }
+        .modal-container { position: fixed; inset: 0; background-color: rgba(0,0,0,0.7); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 1rem; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
+        .modal-container.visible { opacity: 1; pointer-events: auto; }
+        .modal-content { background-color: var(--modal-bg); border: 1px solid var(--border-color); border-radius: 0.75rem; box-shadow: 0 10px 25px rgba(0,0,0,0.5); width: 100%; max-width: 4xl; transform: scale(0.95); transition: transform 0.3s ease; display: flex; flex-direction: column; max-height: 90vh; }
+        .modal-container.visible .modal-content { transform: scale(1); }
+        .modal-body { overflow-y: auto; }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="font-display text-4xl md:text-5xl">Centro de Operaciones <span class="text-accent-primary">Toursys</span></h1>
+            <p class="text-gray-400 mt-2">Conexión Segura a través de Middleware</p>
+        </header>
+
+        <!-- Navegación de Vistas -->
+        <nav class="flex justify-center border-b border-border-color mb-8">
+            <button class="nav-btn active text-lg font-bold py-3 px-6" data-view="quotes">Cotizaciones</button>
+            <button class="nav-btn text-lg font-bold py-3 px-6" data-view="services">Catálogo de Servicios</button>
+        </nav>
+
+        <!-- Vista de Cotizaciones -->
+        <div id="quotes-view" class="view active">
+            <main class="glass-panel p-6">
+                <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                    <h2 class="text-2xl font-display">Listado de Cotizaciones</h2>
+                    <div class="relative w-full md:w-1/3">
+                        <input type="text" id="filter-input-quotes" placeholder="Filtrar cotizaciones..." class="w-full bg-black/20 border border-border-color rounded-md py-2 px-4 focus:outline-none focus:ring-2 focus:ring-accent-primary">
+                    </div>
+                </div>
+                <div id="quotes-table-container" class="overflow-x-auto"></div>
+            </main>
+        </div>
+
+        <!-- Vista de Catálogo de Servicios -->
+        <div id="services-view" class="view">
+            <main class="glass-panel p-6">
+                <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                    <h2 class="text-2xl font-display">Catálogo de Servicios</h2>
+                    <div class="relative w-full md:w-1/3">
+                        <input type="text" id="filter-input-services" placeholder="Filtrar servicios..." class="w-full bg-black/20 border border-border-color rounded-md py-2 px-4 focus:outline-none focus:ring-2 focus:ring-accent-primary">
+                    </div>
+                </div>
+                <div id="services-table-container" class="overflow-x-auto"></div>
+            </main>
+        </div>
+        
+        <footer class="text-center mt-8 text-gray-500 font-mono text-sm">
+            <p>&lt;Appex Arquitecto Digital/&gt;</p>
+        </footer>
+    </div>
+
+    <!-- Modal para Detalles de Cotización -->
+    <div id="quote-details-modal" class="modal-container">
+        <div class="modal-content">
+            <div class="p-4 border-b border-border-color flex justify-between items-center">
+                <h2 id="modal-title" class="font-display text-2xl text-accent-primary">Detalles de la Cotización</h2>
+                <button id="modal-close-btn" class="text-gray-400 hover:text-white text-3xl">&times;</button>
+            </div>
+            <div id="modal-body" class="modal-body p-6">
+                <!-- Contenido dinámico del modal -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- STATE MANAGEMENT ---
+            const state = {
+                quotes: [],
+                services: [],
+            };
+
+            // --- DOM SELECTORS ---
+            const views = document.querySelectorAll('.view');
+            const navButtons = document.querySelectorAll('.nav-btn');
+            const quotesTableContainer = document.getElementById('quotes-table-container');
+            const servicesTableContainer = document.getElementById('services-table-container');
+            const filterInputQuotes = document.getElementById('filter-input-quotes');
+            const filterInputServices = document.getElementById('filter-input-services');
+            const modal = document.getElementById('quote-details-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-body');
+            const modalCloseBtn = document.getElementById('modal-close-btn');
+
+            // --- API ENDPOINTS ---
+            const QUOTES_ENDPOINT = '/.netlify/functions/get-quotes';
+            const QUOTE_DETAILS_ENDPOINT = '/.netlify/functions/get-quote-details';
+            const SERVICES_ENDPOINT = '/.netlify/functions/get-services';
+            
+            // --- UI FUNCTIONS ---
+            const showLoading = (container) => {
+                container.innerHTML = `<div class="text-center py-12"><div class="animate-spin h-8 w-8 text-accent-primary mx-auto rounded-full border-4 border-t-accent-primary border-gray-600"></div><p class="mt-4 text-gray-400">Obteniendo datos...</p></div>`;
+            };
+
+            const showError = (container, message) => {
+                container.innerHTML = `<div class="text-center py-12 bg-red-900/20 border border-red-500 rounded-lg"><p class="font-bold text-red-400">Error</p><p class="mt-2 text-gray-300">${message}</p></div>`;
+            };
+            
+            const getStatusClass = (status) => {
+                if (!status) return 'bg-gray-500 text-white';
+                const lowerStatus = status.toLowerCase();
+                if (lowerStatus.includes('pending')) return 'status-pending';
+                if (lowerStatus.includes('confirmed')) return 'status-confirmed';
+                if (lowerStatus.includes('cancel')) return 'status-cancelled';
+                return 'bg-gray-500 text-white';
+            };
+
+            // --- RENDER FUNCTIONS ---
+            const renderQuotesTable = (quotes) => {
+                if (quotes.length === 0) {
+                    quotesTableContainer.innerHTML = `<p class="text-center py-12 text-gray-400">No se encontraron cotizaciones.</p>`;
+                    return;
+                }
+                const tableHTML = `<table class="w-full text-left whitespace-nowrap"><thead>...</thead><tbody id="quotes-tbody">
+                    ${quotes.map(quote => `
+                        <tr class="border-b border-border-color hover:bg-white/5">
+                            <td class="px-4 py-3 font-mono text-sm">${quote.quoteId || 'N/A'}</td>
+                            <td class="px-4 py-3">${quote.customerName || 'N/A'}</td>
+                            <td class="px-4 py-3"><span class="px-2 py-1 text-xs font-bold rounded-full ${getStatusClass(quote.status)}">${quote.status || 'N/A'}</span></td>
+                            <td class="px-4 py-3 text-right font-mono">${(quote.totalPrice || 0).toFixed(2)}</td>
+                            <td class="px-4 py-3">${quote.currency || 'N/A'}</td>
+                            <td class="px-4 py-3"><button data-id="${quote.quoteId}" class="view-details-btn bg-accent-secondary text-white px-3 py-1 text-xs rounded-md hover:bg-gray-600">Ver Detalles</button></td>
+                        </tr>`).join('')}</tbody></table>`;
+                quotesTableContainer.innerHTML = tableHTML.replace('<thead>...</thead>', `<thead><tr><th class="px-4 py-3 font-semibold">Quote ID</th><th class="px-4 py-3 font-semibold">Cliente</th><th class="px-4 py-3 font-semibold">Estado</th><th class="px-4 py-3 font-semibold text-right">Monto</th><th class="px-4 py-3 font-semibold">Moneda</th><th class="px-4 py-3 font-semibold">Acciones</th></tr></thead>`);
+            };
+            
+            const renderServicesTable = (services) => {
+                if (services.length === 0) {
+                    servicesTableContainer.innerHTML = `<p class="text-center py-12 text-gray-400">No se encontraron servicios.</p>`;
+                    return;
+                }
+                const tableHTML = `<table class="w-full text-left whitespace-nowrap"><thead>...</thead><tbody>
+                    ${services.map(service => `
+                        <tr class="border-b border-border-color hover:bg-white/5">
+                            <td class="px-4 py-3 font-mono text-sm">${service.id || 'N/A'}</td>
+                            <td class="px-4 py-3">${service.name || 'N/A'}</td>
+                            <td class="px-4 py-3">${service.type || 'N/A'}</td>
+                            <td class="px-4 py-3">${service.location?.city || 'N/A'}</td>
+                        </tr>`).join('')}</tbody></table>`;
+                servicesTableContainer.innerHTML = tableHTML.replace('<thead>...</thead>', `<thead><tr><th class="px-4 py-3 font-semibold">ID Servicio</th><th class="px-4 py-3 font-semibold">Nombre</th><th class="px-4 py-3 font-semibold">Tipo</th><th class="px-4 py-3 font-semibold">Ubicación</th></tr></thead>`);
+            };
+
+            const renderQuoteDetailsInModal = (details) => {
+                const itemsHTML = details.items && details.items.length > 0
+                    ? details.items.map(item => `
+                        <tr class="border-b border-border-color">
+                            <td class="p-3">${item.name || 'Servicio sin nombre'}</td>
+                            <td class="p-3 text-center">${item.pax || 1}</td>
+                            <td class="p-3 text-right font-mono">${(item.price || 0).toFixed(2)}</td>
+                        </tr>`).join('')
+                    : '<tr><td colspan="3" class="p-3 text-center text-gray-400">No hay ítems de servicio en esta cotización.</td></tr>';
+
+                modalBody.innerHTML = `
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                        <div class="font-mono text-sm"><strong class="block text-gray-400">Cliente:</strong> ${details.customer?.name || 'N/A'}</div>
+                        <div class="font-mono text-sm"><strong class="block text-gray-400">Email:</strong> ${details.customer?.email || 'N/A'}</div>
+                        <div class="font-mono text-sm"><strong class="block text-gray-400">Expira:</strong> ${details.expiresAt ? new Date(details.expiresAt).toLocaleDateString() : 'N/A'}</div>
+                    </div>
+                    <h3 class="font-display text-xl mb-4">Líneas de Servicio</h3>
+                    <div class="overflow-hidden border border-border-color rounded-lg">
+                        <table class="w-full text-left">
+                            <thead class="bg-black/20"><tr>
+                                <th class="p-3 font-semibold">Servicio</th>
+                                <th class="p-3 font-semibold text-center">Pax</th>
+                                <th class="p-3 font-semibold text-right">Precio</th>
+                            </tr></thead>
+                            <tbody>${itemsHTML}</tbody>
+                        </table>
+                    </div>
+                    <div class="text-right mt-6">
+                        <span class="text-gray-400">Total:</span>
+                        <span class="font-display text-3xl ml-4">${(details.totalPrice || 0).toFixed(2)} ${details.currency || ''}</span>
+                    </div>`;
+                modalTitle.textContent = `Detalles de Cotización: ${details.quoteId}`;
+                modal.classList.add('visible');
+            };
+
+            // --- DATA FETCHING ---
+            const fetchData = async (endpoint, container, renderer, stateKey) => {
+                showLoading(container);
+                try {
+                    const response = await fetch(endpoint);
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || `Error del servidor: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    state[stateKey] = Array.isArray(data) ? data : (data.results || []);
+                    renderer(state[stateKey]);
+                } catch (error) {
+                    console.error(`Error fetching ${stateKey}:`, error);
+                    showError(container, error.message);
+                }
+            };
+
+            const fetchQuoteDetails = async (quoteId) => {
+                modalBody.innerHTML = `<div class="text-center py-12"><div class="animate-spin h-8 w-8 text-accent-primary mx-auto rounded-full border-4 border-t-accent-primary border-gray-600"></div></div>`;
+                modal.classList.add('visible');
+                try {
+                    const response = await fetch(`${QUOTE_DETAILS_ENDPOINT}?id=${quoteId}`);
+                     if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || `Error del servidor: ${response.status}`);
+                    }
+                    const details = await response.json();
+                    renderQuoteDetailsInModal(details);
+                } catch (error) {
+                    modalBody.innerHTML = `<div class="text-center py-12"><p class="text-red-400">${error.message}</p></div>`;
+                }
+            };
+            
+            // --- EVENT HANDLERS ---
+            navButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const viewId = button.dataset.view;
+                    navButtons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+                    views.forEach(view => view.classList.toggle('active', view.id === `${viewId}-view`));
+                });
+            });
+            
+            filterInputQuotes.addEventListener('input', (e) => {
+                const term = e.target.value.toLowerCase();
+                renderQuotesTable(state.quotes.filter(q => Object.values(q).some(val => String(val).toLowerCase().includes(term))));
+            });
+            
+            filterInputServices.addEventListener('input', (e) => {
+                const term = e.target.value.toLowerCase();
+                renderServicesTable(state.services.filter(s => Object.values(s).some(val => String(val).toLowerCase().includes(term))));
+            });
+
+            quotesTableContainer.addEventListener('click', (e) => {
+                const button = e.target.closest('.view-details-btn');
+                if (button) {
+                    fetchQuoteDetails(button.dataset.id);
+                }
+            });
+
+            modalCloseBtn.addEventListener('click', () => modal.classList.remove('visible'));
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.classList.remove('visible');
+            });
+            
+            // --- INITIALIZATION ---
+            const initializeApp = () => {
+                Promise.all([
+                    fetchData(QUOTES_ENDPOINT, quotesTableContainer, renderQuotesTable, 'quotes'),
+                    fetchData(SERVICES_ENDPOINT, servicesTableContainer, renderServicesTable, 'services')
+                ]);
+            };
+
+            initializeApp();
+        });
+    </script>
+</body>
+</html>
+
