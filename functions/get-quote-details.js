@@ -1,39 +1,79 @@
-// functions/get-quote-details.js
 const fetch = require('node-fetch');
 
+const TOURSYS_USER = process.env.TOURSYS_USER;
+const TOURSYS_PASS = process.env.TOURSYS_PASS;
+const API_BASE_URL = process.env.TOURSYS_API_URL.replace(/\/$/, "");
+
+function buildUrl(path) {
+    return `${API_BASE_URL}${path}`;
+}
+
+async function getAuthToken() {
+    const authUrl = buildUrl('/ToursysConnectionApi/api/auth/jwt');
+    const response = await fetch(authUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userName: TOURSYS_USER, password: TOURSYS_PASS }),
+    });
+    if (!response.ok) {
+        const errorBody = await response.text();
+        console.error(`Error de autenticación desde ${authUrl}:`, errorBody);
+        throw new Error(`Fallo en la autenticación con la API de Toursys. Status: ${response.status}. Respuesta: ${errorBody}`);
+    }
+    const data = await response.json();
+    return data.generatedToken;
+}
+
 exports.handler = async (event, context) => {
-    const quoteId = event.queryStringParameters.id;
-    if (!quoteId) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'No se proporcionó un ID de cotización.' }) };
-    }
-
-    const USERNAME = process.env.TOURSYS_API_USER;
-    const PASSWORD = process.env.TOURSYS_API_PASSWORD;
-    const API_URL = `http://k8s-cloud1.toursys.net/api/v2/quotes/${quoteId}`;
-
-    if (!USERNAME || !PASSWORD) {
-        return { statusCode: 500, body: JSON.stringify({ error: 'Error de configuración del servidor.' }) };
-    }
-
     try {
-        const credentials = Buffer.from(`${USERNAME}:${PASSWORD}`).toString('base64');
-        const response = await fetch(API_URL, {
-            method: 'GET',
-            headers: { 'Authorization': `Basic ${credentials}`, 'Content-Type': 'application/json' }
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            return { statusCode: response.status, body: JSON.stringify({ error: `Error de la API de Toursys para el ID ${quoteId}: ${response.statusText}`, details: errorText }) };
+        const { id } = event.queryStringParameters;
+        if (!id) {
+            return {
+                statusCode: 400,
+                body: JSON.stringify({ error: 'El ID de la cotización es requerido.' }),
+            };
         }
 
-        const data = await response.json();
-        return { statusCode: 200, body: JSON.stringify(data) };
+        const token = await getAuthToken();
+        
+        const quoteUrl = buildUrl(`/ToursysConnectionApi/api/quotations/${id}`);
+        const quoteResponse = await fetch(quoteUrl, {
+            headers: { 'X-API-KEY': token },
+        });
 
+        if (!quoteResponse.ok) {
+            const errorBody = await quoteResponse.text();
+            throw new Error(`Error al obtener datos de la cotización desde ${quoteUrl}. Status: ${quoteResponse.status}. Respuesta: ${errorBody}`);
+        }
+        const quoteData = await quoteResponse.json();
+
+        const linesUrl = buildUrl(`/ToursysConnectionApi/api/quotationLines/${id}&es`);
+        const linesResponse = await fetch(linesUrl, {
+             headers: { 'X-API-KEY': token },
+        });
+
+        if (!linesResponse.ok) {
+            const errorBody = await linesResponse.text();
+            throw new Error(`Error al obtener líneas de servicio desde ${linesUrl}. Status: ${linesResponse.status}. Respuesta: ${errorBody}`);
+        }
+        const linesData = await linesResponse.json();
+
+        const fullDetail = {
+            ...quoteData,
+            serviceLines: linesData
+        };
+
+        return {
+            statusCode: 200,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(fullDetail),
+        };
     } catch (error) {
-        console.error("Error en get-quote-details:", error);
-        return { statusCode: 500, body: JSON.stringify({ error: 'Error interno al obtener los detalles.' }) };
+        console.error(error);
+        return {
+            statusCode: 500,
+            body: JSON.stringify({ error: error.message }),
+        };
     }
 };
-
 
